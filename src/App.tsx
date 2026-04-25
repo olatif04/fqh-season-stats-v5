@@ -726,13 +726,30 @@ export default function App() {
       return;
     }
 
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('image/png')) {
+      const text = await response.text();
+      setError(text || 'Export endpoint returned a non-image response.');
+      return;
+    }
+
     const blob = await response.blob();
+    if (blob.size === 0) {
+      setError('Export returned an empty PNG. Please try again.');
+      return;
+    }
+
     const objectUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = objectUrl;
     a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(objectUrl);
+    a.remove();
+
+    // Safari can produce a 0-byte download if this is revoked immediately.
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
   };
 
   if (configError) return <ErrorScreen message={configError} />;
