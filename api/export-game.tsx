@@ -103,7 +103,8 @@ export default async function handler(request: Request) {
   const bluePlayers = blueRows.filter((row) => row.role === 'player');
   const blueGoalies = blueRows.filter((row) => row.role === 'goalie');
 
-  return new ImageResponse(
+  try {
+    return new ImageResponse(
     (
       <div
         style={{
@@ -195,4 +196,8 @@ export default async function handler(request: Request) {
       height: 1200,
     }
   );
+  } catch (err) {
+    console.error('ImageResponse error:', err);
+    return new Response(`Image generation failed: ${err instanceof Error ? err.message : 'Unknown error'}`, { status: 500 });
+  }
 }

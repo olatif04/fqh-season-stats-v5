@@ -64,7 +64,8 @@ export default async function handler(request: Request) {
   const year = body.seasonYear || '2026-2027';
   const gamesCount = Number.isFinite(body.gamesCount) ? body.gamesCount : 0;
 
-  return new ImageResponse(
+  try {
+    return new ImageResponse(
     (
       <div
         style={{
@@ -146,4 +147,8 @@ export default async function handler(request: Request) {
       height: 1200,
     }
   );
+  } catch (err) {
+    console.error('ImageResponse error:', err);
+    return new Response(`Image generation failed: ${err instanceof Error ? err.message : 'Unknown error'}`, { status: 500 });
+  }
 }
