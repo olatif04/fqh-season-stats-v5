@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
   Calendar,
@@ -13,6 +13,7 @@ import {
   Trophy,
   User,
 } from 'lucide-react';
+import html2canvas from 'html2canvas';
 import { getConfigError, supabase } from './lib/supabase';
 import {
   computeSeasonStats,
@@ -714,42 +715,88 @@ export default function App() {
 
   const downloadServerPng = async (endpoint: string, filename: string, payload: unknown) => {
     setError('');
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-    if (!response.ok) {
-      const text = await response.text();
-      setError(text || 'Failed to export PNG.');
+      if (!response.ok) {
+        const text = await response.text();
+        // If server fails, fall back to client-side export
+        console.warn('Server export failed, trying client-side:', text);
+        return false;
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('image/png')) {
+        const text = await response.text();
+        console.warn('Server returned non-PNG, trying client-side:', text);
+        return false;
+      }
+
+      const blob = await response.blob();
+      if (blob.size === 0) {
+        console.warn('Server returned empty PNG, trying client-side');
+        return false;
+      }
+
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+      return true;
+    } catch (err) {
+      console.warn('Server export error, will try client-side:', err);
+      return false;
+    }
+  };
+
+  const downloadClientPng = async (elementId: string, filename: string) => {
+    setError('');
+    const element = document.getElementById(elementId);
+    if (!element) {
+      setError('Export element not found.');
       return;
     }
 
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('image/png')) {
-      const text = await response.text();
-      setError(text || 'Export endpoint returned a non-image response.');
-      return;
+    try {
+      const canvas = await html2canvas(element, {
+        backgroundColor: null,
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      });
+
+      const blob = await new Promise<Blob>((resolve) => {
+        canvas.toBlob((b) => resolve(b!), 'image/png');
+      });
+
+      if (blob.size === 0) {
+        setError('Export returned an empty PNG. Please try again.');
+        return;
+      }
+
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+    } catch (err) {
+      setError(`Export failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
-
-    const blob = await response.blob();
-    if (blob.size === 0) {
-      setError('Export returned an empty PNG. Please try again.');
-      return;
-    }
-
-    const objectUrl = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = objectUrl;
-    a.download = filename;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-
-    // Safari can produce a 0-byte download if this is revoked immediately.
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
   };
 
   if (configError) return <ErrorScreen message={configError} />;
@@ -791,14 +838,17 @@ export default function App() {
               seasonMeta={seasonMeta}
               theme={gameExportTheme}
               setTheme={setGameExportTheme}
-              onExport={() =>
-                downloadServerPng('/api/export-game', `fqh-game-${selectedGame.date || selectedGame.id}.png`, {
+              onExport={async () => {
+                const success = await downloadServerPng('/api/export-game', `fqh-game-${selectedGame.date || selectedGame.id}.png`, {
                   game: selectedGame,
                   seasonTitle: buildSeasonTitle(seasonMeta),
                   seasonYear: seasonMeta.yearText.trim() || '2026-2027',
                   theme: gameExportTheme,
-                })
-              }
+                });
+                if (!success) {
+                  await downloadClientPng('game-export-frame', `fqh-game-${selectedGame.date || selectedGame.id}.png`);
+                }
+              }}
               onBack={() => setView('dashboard')}
             />
           ) : view === 'add-game' ? (
@@ -901,15 +951,18 @@ export default function App() {
                   <ExportControls
                     theme={seasonExportTheme}
                     setTheme={setSeasonExportTheme}
-                    onExport={() =>
-                      downloadServerPng('/api/export-season', 'fqh-season-stats.png', {
+                    onExport={async () => {
+                      const success = await downloadServerPng('/api/export-season', 'fqh-season-stats.png', {
                         rows: filteredSeasonStats,
                         seasonTitle: buildSeasonTitle(seasonMeta),
                         seasonYear: seasonMeta.yearText.trim() || '2026-2027',
                         gamesCount: games.length,
                         theme: seasonExportTheme,
-                      })
-                    }
+                      });
+                      if (!success) {
+                        await downloadClientPng('season-export-wrap', 'fqh-season-stats.png');
+                      }
+                    }}
                     compact
                   />
                 </div>
@@ -1091,7 +1144,7 @@ function GameDetail({
         <ExportControls theme={theme} setTheme={setTheme} onExport={onExport} compact />
       </div>
 
-      <div className="card export-preview-card">
+      <div id="game-export-frame" className="card export-preview-card">
         <div className="section-head between align-start">
           <div>
             <div className="eyebrow">FQH</div>
