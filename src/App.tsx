@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { toPng } from 'html-to-image';
 import {
   Calendar,
   ChevronLeft,
@@ -713,26 +712,27 @@ export default function App() {
     await loadGames();
   };
 
-  const exportNode = async (id: string, filename: string) => {
-    const node = document.getElementById(id);
-    if (!node) return;
-
-    const dataUrl = await toPng(node, {
-      cacheBust: true,
-      pixelRatio: 2,
-      backgroundColor: '#ffffff',
-      skipFonts: true,
-      canvasWidth: node.scrollWidth,
-      canvasHeight: node.scrollHeight,
-      style: {
-        margin: '0',
-      },
+  const downloadServerPng = async (endpoint: string, filename: string, payload: unknown) => {
+    setError('');
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
 
+    if (!response.ok) {
+      const text = await response.text();
+      setError(text || 'Failed to export PNG.');
+      return;
+    }
+
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = dataUrl;
+    a.href = objectUrl;
     a.download = filename;
     a.click();
+    URL.revokeObjectURL(objectUrl);
   };
 
   if (configError) return <ErrorScreen message={configError} />;
@@ -774,7 +774,14 @@ export default function App() {
               seasonMeta={seasonMeta}
               theme={gameExportTheme}
               setTheme={setGameExportTheme}
-              onExport={() => exportNode('game-export', `fqh-game-${selectedGame.date || selectedGame.id}.png`)}
+              onExport={() =>
+                downloadServerPng('/api/export-game', `fqh-game-${selectedGame.date || selectedGame.id}.png`, {
+                  game: selectedGame,
+                  seasonTitle: buildSeasonTitle(seasonMeta),
+                  seasonYear: seasonMeta.yearText.trim() || '2026-2027',
+                  theme: gameExportTheme,
+                })
+              }
               onBack={() => setView('dashboard')}
             />
           ) : view === 'add-game' ? (
@@ -874,7 +881,20 @@ export default function App() {
                     <div className="title-row"><Trophy size={20} /> <h2>Season Stats</h2></div>
                     <p>{buildSeasonTitle(seasonMeta)} · players and goalies combined into one table.</p>
                   </div>
-                  <ExportControls theme={seasonExportTheme} setTheme={setSeasonExportTheme} onExport={() => exportNode('season-export', 'fqh-season-stats.png')} compact />
+                  <ExportControls
+                    theme={seasonExportTheme}
+                    setTheme={setSeasonExportTheme}
+                    onExport={() =>
+                      downloadServerPng('/api/export-season', 'fqh-season-stats.png', {
+                        rows: filteredSeasonStats,
+                        seasonTitle: buildSeasonTitle(seasonMeta),
+                        seasonYear: seasonMeta.yearText.trim() || '2026-2027',
+                        gamesCount: games.length,
+                        theme: seasonExportTheme,
+                      })
+                    }
+                    compact
+                  />
                 </div>
 
                 <div className="toolbar">
