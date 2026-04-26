@@ -41,7 +41,7 @@ export function sumTeamPlayerGoals(rows: Entry[], team: Team) {
 export function goalieGamePoints(row: Entry, redScore: number, blueScore: number) {
   const assists = safeNumber(row.assists);
   const won = row.team === 'Red' ? redScore > blueScore : blueScore > redScore;
-  const diff = won ? Math.min(Math.abs(redScore - blueScore), 5) : 0;
+  const diff = won ? Math.abs(redScore - blueScore) : 0;
   return 5 + assists + diff;
 }
 
